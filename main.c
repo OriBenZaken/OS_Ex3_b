@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <memory.h>
+#include <dirent.h>
 
 #define STDERR_FD 2
 #define CONFIG_LINE_LENGTH 160
@@ -44,6 +45,8 @@ int main(int argc, char *argv[]) {
     char* correct_output_file_path;
     char* students_directory_path;
 
+    // get all paths from the configuration file
+
     students_directory_path = strtok(config_file_buffer, "\n");
     input_file_path = strtok(NULL, "\n");
     correct_output_file_path =  strtok(NULL, "\n");
@@ -52,5 +55,19 @@ int main(int argc, char *argv[]) {
     printf("%s\n", input_file_path);
     printf("%s\n", correct_output_file_path);
 
+    // go through all directories in students directory
+    struct dirent* sub_dir;
+    DIR *p_student_dir;
+    if ((p_student_dir = opendir(students_directory_path)) == NULL) {
+        printf("Couldn't open student directory\n");
+    }
+
+    // todo: close dir!
+    while ((sub_dir = readdir(p_student_dir)) != NULL) {
+        // go through all sub directories except "." (current dir) and ".." (father dir)
+        if (strcmp(sub_dir->d_name, ".") && strcmp(sub_dir->d_name, "..")) {
+            printf("<-------- Now in: %s --------->\n", sub_dir->d_name);
+        }
+    }
     return 0;
 }
