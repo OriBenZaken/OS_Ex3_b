@@ -5,15 +5,48 @@
 #include <fcntl.h>
 #include <memory.h>
 #include <dirent.h>
+#include <sys/stat.h>
 
 #define STDERR_FD 2
 #define CONFIG_LINE_LENGTH 160
+#define DIRECTORY_PATH_LENGTH 200
 /**
  * prints error in sys call to stderr.
  */
 void printErrorInSysCallToSTDERR() {
     char error_msg[] = "Error in system call\n";
     write(STDERR_FD, error_msg, sizeof(error_msg));
+}
+
+void handleStudentDirectory(char* path) {
+    DIR* pDir;
+    struct dirent*  entry;
+    struct stat stat_p;
+    char entry_path[DIRECTORY_PATH_LENGTH];
+
+    if ((pDir = opendir(path)) == NULL) {
+        printf("Couldn't open student directory\n");
+    }
+    while ((entry = readdir(pDir)) != NULL) {
+        // go through all sub directories except "." (current dir) and ".." (father dir)
+        if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..")) {
+            printf("\t%s\n", entry->d_name);
+            strcpy(entry_path, path);
+            strcat(entry_path, "/");
+            strcat(entry_path, entry->d_name);
+            if (stat(entry_path, &stat_p) == -1) {
+                printf("Error occurred attempting to stat %s\n", entry->d_name);
+            } else {
+                if (S_ISDIR(stat_p.st_mode)) {
+                    printf("\t\t%s is a directory\n", entry->d_name);
+                }
+            }
+
+
+        }
+    }
+
+
 }
 
 int main(int argc, char *argv[]) {
@@ -62,11 +95,17 @@ int main(int argc, char *argv[]) {
         printf("Couldn't open student directory\n");
     }
 
+    char path[DIRECTORY_PATH_LENGTH];
+
     // todo: close dir!
     while ((sub_dir = readdir(p_student_dir)) != NULL) {
         // go through all sub directories except "." (current dir) and ".." (father dir)
         if (strcmp(sub_dir->d_name, ".") && strcmp(sub_dir->d_name, "..")) {
             printf("<-------- Now in: %s --------->\n", sub_dir->d_name);
+            strcpy(path, students_directory_path);
+            strcat(path, "/");
+            strcat(path, sub_dir->d_name);
+            handleStudentDirectory(path);
         }
     }
     return 0;
