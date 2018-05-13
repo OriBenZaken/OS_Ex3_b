@@ -18,11 +18,33 @@ void printErrorInSysCallToSTDERR() {
     write(STDERR_FD, error_msg, sizeof(error_msg));
 }
 
-void handleStudentDirectory(char* path) {
+int isCFile(char* filename) {
+    filename = strrchr(filename, '.');
+
+    if( filename != NULL )
+        if (!strcmp(filename, ".c")) {
+            return 1;
+        }
+
+    return 0;
+}
+
+void compileAndRunCFile(char* path) {
+
+}
+
+void buildPath(char* dest, char* curr_path, char* filename) {
+    strcpy(dest, curr_path);
+    strcat(dest, "/");
+    strcat(dest, filename);
+}
+
+int handleStudentDirectory(char* path) {
     DIR* pDir;
     struct dirent*  entry;
     struct stat stat_p;
     char entry_path[DIRECTORY_PATH_LENGTH];
+    int found_c_file = 0;
 
     if ((pDir = opendir(path)) == NULL) {
         printf("Couldn't open student directory\n");
@@ -30,23 +52,50 @@ void handleStudentDirectory(char* path) {
     while ((entry = readdir(pDir)) != NULL) {
         // go through all sub directories except "." (current dir) and ".." (father dir)
         if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..")) {
+            // building entry path
             printf("\t%s\n", entry->d_name);
-            strcpy(entry_path, path);
-            strcat(entry_path, "/");
-            strcat(entry_path, entry->d_name);
-            if (stat(entry_path, &stat_p) == -1) {
-                printf("Error occurred attempting to stat %s\n", entry->d_name);
-            } else {
-                if (S_ISDIR(stat_p.st_mode)) {
-                    printf("\t\t%s is a directory\n", entry->d_name);
-                }
+            if (isCFile(entry->d_name)) {
+                printf("\t\t%s is a C file!\n", entry->d_name);
+                found_c_file = 1;
+                buildPath(entry_path, path, entry->d_name);
             }
+        }
+    }
+    closedir(pDir);
 
+    // check if found a c file. if so - try to compile and run it.
+    if (found_c_file) {
+        // call to function which compiles and runs the c file.
+        return 1;
+    } else {
+        // search for a .c file recursively
+        if ((pDir = opendir(path)) == NULL) {
+            printf("Couldn't open student directory\n");
+        }
+        while ((entry = readdir(pDir)) != NULL) {
+            // go through all sub directories except "." (current dir) and ".." (father dir)
+            if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..")) {
+                continue;
+            }
+                // building entry path
+            buildPath(entry_path, path, entry->d_name);
+            if (stat(entry_path, &stat_p) == -1) {
+                    printf("Error occurred attempting to stat %s\n", entry->d_name);
+                } else {
+                    if (S_ISDIR(stat_p.st_mode)) {
+                        printf("####### Going recursively to a directory: %s #######\n", entry->d_name);
+                        buildPath(entry_path, path, entry->d_name);
+                        if (handleStudentDirectory(entry_path)) {
+                            closedir(pDir);
+                            return 1;
+                        }
+                    }
+                }
 
         }
     }
 
-
+    return -1;
 }
 
 int main(int argc, char *argv[]) {
@@ -74,6 +123,11 @@ int main(int argc, char *argv[]) {
         config_file_buffer[read_bytes] = '\0';
     }
 
+    if (close(config_file) == -1) {
+        printf("Failed to close configuration file\n");
+        printErrorInSysCallToSTDERR();
+    }
+
     char* input_file_path;
     char* correct_output_file_path;
     char* students_directory_path;
@@ -96,8 +150,7 @@ int main(int argc, char *argv[]) {
     }
 
     char path[DIRECTORY_PATH_LENGTH];
-
-    // todo: close dir!
+    int result;
     while ((sub_dir = readdir(p_student_dir)) != NULL) {
         // go through all sub directories except "." (current dir) and ".." (father dir)
         if (strcmp(sub_dir->d_name, ".") && strcmp(sub_dir->d_name, "..")) {
@@ -105,8 +158,11 @@ int main(int argc, char *argv[]) {
             strcpy(path, students_directory_path);
             strcat(path, "/");
             strcat(path, sub_dir->d_name);
-            handleStudentDirectory(path);
+            result = handleStudentDirectory(path);
+            printf("$ Result for student %s is %d\n", sub_dir->d_name, result);
         }
     }
+
+    closedir(p_student_dir);
     return 0;
 }
