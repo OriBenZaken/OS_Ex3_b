@@ -6,6 +6,8 @@
 #include <memory.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <stdlib.h>
+#include <wait.h>
 
 #define STDERR_FD 2
 #define CONFIG_LINE_LENGTH 160
@@ -29,8 +31,25 @@ int isCFile(char* filename) {
     return 0;
 }
 
-void compileAndRunCFile(char* path) {
-
+int compileAndRunCFile(char* path) {
+    char compile_command[] = "gcc";
+    int grade = 0;
+    char* args[3] = {compile_command, path, NULL};
+    int i = 0;
+    int pid;
+    if ((pid = fork()) < 0) {
+        printf("Error in fork command in order to compile .c file\n");
+        printErrorInSysCallToSTDERR();
+        // son process
+    }
+    if (pid == 0) {
+        execvp(args[0], &args[0]);
+        printf("failed gcc %s\n", path);
+        exit(0);
+    } else {
+        
+    }
+    return grade;
 }
 
 void buildPath(char* dest, char* curr_path, char* filename) {
@@ -45,6 +64,7 @@ int handleStudentDirectory(char* path) {
     struct stat stat_p;
     char entry_path[DIRECTORY_PATH_LENGTH];
     int found_c_file = 0;
+    int result = -1;
 
     if ((pDir = opendir(path)) == NULL) {
         printf("Couldn't open student directory\n");
@@ -58,6 +78,7 @@ int handleStudentDirectory(char* path) {
                 printf("\t\t%s is a C file!\n", entry->d_name);
                 found_c_file = 1;
                 buildPath(entry_path, path, entry->d_name);
+                compileAndRunCFile(entry_path);
             }
         }
     }
@@ -74,23 +95,24 @@ int handleStudentDirectory(char* path) {
         }
         while ((entry = readdir(pDir)) != NULL) {
             // go through all sub directories except "." (current dir) and ".." (father dir)
-            if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..")) {
+            if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) {
                 continue;
             }
                 // building entry path
             buildPath(entry_path, path, entry->d_name);
             if (stat(entry_path, &stat_p) == -1) {
-                    printf("Error occurred attempting to stat %s\n", entry->d_name);
-                } else {
-                    if (S_ISDIR(stat_p.st_mode)) {
-                        printf("####### Going recursively to a directory: %s #######\n", entry->d_name);
-                        buildPath(entry_path, path, entry->d_name);
-                        if (handleStudentDirectory(entry_path)) {
-                            closedir(pDir);
-                            return 1;
-                        }
+                printf("Error occurred attempting to stat %s\n", entry->d_name);
+            } else {
+                if (S_ISDIR(stat_p.st_mode)) {
+                    printf("####### Going recursively to a directory: %s #######\n", entry->d_name);
+                    buildPath(entry_path, path, entry->d_name);
+                    result =handleStudentDirectory(entry_path);
+                    if (result != -1) {
+                        closedir(pDir);
+                        return result;
                     }
                 }
+            }
 
         }
     }
