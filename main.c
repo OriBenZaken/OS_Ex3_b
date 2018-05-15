@@ -13,8 +13,15 @@
 #define CONFIG_LINE_LENGTH 160
 #define DIRECTORY_PATH_LENGTH 200
 #define STUDENT_EXECUTE_FILE_NAME "prog_s"
-#define COMPILATION_FAILED 4
+#define COMPILATION_ERROR 4
 #define SYS_CALL_FAILURE 10
+#define TIMEOUT 5
+#define FAILURE 11
+#define NO_C_FILE 6
+#define RESULT_LINE_LENGTH 200
+#define GREAT_JOB 3
+#define SIMILAR_OUTPUT 2
+#define BAD_OUTPUT 1
 
 /**
  * prints error in sys call to stderr.
@@ -50,13 +57,13 @@ int compileAndRunCFile(char* path, char* input_file_path, char* correct_output_f
     }
     if (pid == 0) {
         execvp(args[0], &args[0]);
-        exit(COMPILATION_FAILED);
+        exit(COMPILATION_ERROR);
     } else {
         // waiting for son process to finish compiling
         waitpid(pid, NULL, 0);
         if (!checkCompileSuccess()) {
             printf("Compiled failed\n");
-            result = COMPILATION_FAILED;
+            result = COMPILATION_ERROR;
         } else {
             result = getStudentProgramResult(input_file_path, correct_output_file_path);
         }
@@ -64,13 +71,15 @@ int compileAndRunCFile(char* path, char* input_file_path, char* correct_output_f
     return result;
 }
 
+
+
 int getStudentProgramResult(char* input_file_path, char* correct_output_file_path) {
     int status;
     int in, out;
     int pid;
 
     if ((pid = fork()) < 0) {
-        printf("Failed to create cjild process for running student's program\n");
+        printf("Failed to create child process for running student's program\n");
         printErrorInSysCallToSTDERR();
         exit(-1);
     }
@@ -101,16 +110,49 @@ int getStudentProgramResult(char* input_file_path, char* correct_output_file_pat
             printErrorInSysCallToSTDERR();
             exit(SYS_CALL_FAILURE);
         }
-        printf("Hi\n");
 
         char prog_name[] = "./prog_s";
         char* args[] = {prog_name, NULL};
         execvp(args[0], args);
         printf("Failed to run student program\n");
-        // main process
+        exit(1);
+        // main process - checks for time out
     } else {
+        sleep(5);
+        if (waitpid(pid, &status, WNOHANG) == 0) {
+            // program is running more than 5 seconds
+            return TIMEOUT;
+        }
+    }
+    char prog_output[] = "output";
+    return compareFiles(prog_output, correct_output_file_path);
+}
+
+int compareFiles(char* prog_output,char* correct_output_file_path) {
+    char prog_name[] = "./comp.out";
+    char* args[] = {prog_name, correct_output_file_path, prog_output, NULL};
+    int pid;
+    int status, result;
+    if ((pid = fork()) < 0) {
+        printf("Failed to create child process for running student's program\n");
+        printErrorInSysCallToSTDERR();
+        exit(-1);
+    }
+    // child process - runs comp.out
+    if (pid == 0) {
+        execvp(args[0], args);
+        printf("Failed execute comp.out\n");
+        exit(FAILURE);
+    }
+    // main process - waiting for the comparison result
+    if (pid > 0) {
         waitpid(pid, &status, 0);
-        return 0;
+        result = WEXITSTATUS(status);
+        if (result == FAILURE) {
+            printf("Program stopped because it failed to execute comp.out\n");
+            exit(FAILURE);
+        }
+        return result;
     }
 }
 
@@ -146,7 +188,7 @@ int handleStudentDirectory(char* path, char* input_file_path, char* correct_outp
     struct stat stat_p;
     char entry_path[DIRECTORY_PATH_LENGTH];
     int found_c_file = 0;
-    int result = -1;
+    int result = NO_C_FILE;
 
     if ((pDir = opendir(path)) == NULL) {
         printf("Couldn't open student directory\n");
@@ -160,7 +202,7 @@ int handleStudentDirectory(char* path, char* input_file_path, char* correct_outp
                 printf("\t\t%s is a C file!\n", entry->d_name);
                 found_c_file = 1;
                 buildPath(entry_path, path, entry->d_name);
-                compileAndRunCFile(entry_path, input_file_path, correct_output_file_path);
+                result = compileAndRunCFile(entry_path, input_file_path, correct_output_file_path);
             }
         }
     }
@@ -169,7 +211,7 @@ int handleStudentDirectory(char* path, char* input_file_path, char* correct_outp
     // check if found a c file. if so - try to compile and run it.
     if (found_c_file) {
         // call to function which compiles and runs the c file.
-        return 1;
+        return result;
     } else {
         // search for a .c file recursively
         if ((pDir = opendir(path)) == NULL) {
@@ -199,7 +241,40 @@ int handleStudentDirectory(char* path, char* input_file_path, char* correct_outp
         }
     }
 
-    return -1;
+    return NO_C_FILE;
+}
+
+void writeGradeToResultsFile(int result_file, char* name, int result) {
+    char result_line[RESULT_LINE_LENGTH];
+    strcpy(result_line, name);
+    strcat(result_line, ",");
+    switch (result) {
+        case GREAT_JOB:
+            strcat(result_line, "100,GREAT_JOB\n");
+            break;
+        case SIMILAR_OUTPUT:
+            strcat(result_line, "80,SIMILAR_OUTPUT\n");
+            break;
+        case BAD_OUTPUT:
+            strcat(result_line, "60,BAD_OUTPUT\n");
+            break;
+        case TIMEOUT:
+            strcat(result_line, "0,TIMEOUT\n");
+            break;
+        case COMPILATION_ERROR:
+            strcat(result_line, "0,COMPILATION_ERROR\n");
+            break;
+        case NO_C_FILE:
+            strcat(result_line, "0,NO_C_FILE\n");
+            break;
+        default:
+            break;
+    }
+    if (write(result_file, result_line, strlen(result_line)) < 0) {
+        printf("Failed to write to result.csv\n");
+        printErrorInSysCallToSTDERR();
+        exit(FAILURE);
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -255,6 +330,12 @@ int main(int argc, char *argv[]) {
 
     char path[DIRECTORY_PATH_LENGTH];
     int result;
+    int result_file = open("results.csv", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    if (result_file < 0) {
+        printf("Couldn't open result.csv file\n");
+        printErrorInSysCallToSTDERR();
+        exit(FAILURE);
+    }
     while ((sub_dir = readdir(p_student_dir)) != NULL) {
         // go through all sub directories except "." (current dir) and ".." (father dir)
         if (strcmp(sub_dir->d_name, ".") && strcmp(sub_dir->d_name, "..")) {
@@ -264,9 +345,17 @@ int main(int argc, char *argv[]) {
             strcat(path, sub_dir->d_name);
             result = handleStudentDirectory(path, input_file_path, correct_output_file_path);
             printf("$ Result for student %s is %d\n", sub_dir->d_name, result);
+            if (result == FAILURE || result == SYS_CALL_FAILURE) {
+                printf("Got unexpected result: %d\n", result);
+                exit(FAILURE);
+            }
+            writeGradeToResultsFile(result_file, sub_dir->d_name,result);
         }
     }
-
     closedir(p_student_dir);
+    if (close(result_file) < 0 ) {
+        printf("Error while closing result.csv file\n");
+        printErrorInSysCallToSTDERR();
+    }
     return 0;
 }
