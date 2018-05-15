@@ -12,6 +12,10 @@
 #define STDERR_FD 2
 #define CONFIG_LINE_LENGTH 160
 #define DIRECTORY_PATH_LENGTH 200
+#define STUDENT_EXECUTE_FILE_NAME "prog_s"
+#define COMPILATION_FAILED 4
+#define SYS_CALL_FAILURE 10
+
 /**
  * prints error in sys call to stderr.
  */
@@ -27,14 +31,16 @@ int isCFile(char* filename) {
         if (!strcmp(filename, ".c")) {
             return 1;
         }
-
     return 0;
 }
 
-int compileAndRunCFile(char* path) {
+int compileAndRunCFile(char* path, char* input_file_path, char* correct_output_file_path) {
     char compile_command[] = "gcc";
-    int grade = 0;
-    char* args[3] = {compile_command, path, NULL};
+    char o_flag[] = "-o";
+    char excute_file_name[] = STUDENT_EXECUTE_FILE_NAME;
+    unlink(excute_file_name);
+    int result = 0;
+    char* args[] = {compile_command, o_flag, excute_file_name, path, NULL};
     int i = 0;
     int pid;
     if ((pid = fork()) < 0) {
@@ -44,21 +50,97 @@ int compileAndRunCFile(char* path) {
     }
     if (pid == 0) {
         execvp(args[0], &args[0]);
-        printf("failed gcc %s\n", path);
-        exit(0);
+        exit(COMPILATION_FAILED);
     } else {
-        
+        // waiting for son process to finish compiling
+        waitpid(pid, NULL, 0);
+        if (!checkCompileSuccess()) {
+            printf("Compiled failed\n");
+            result = COMPILATION_FAILED;
+        } else {
+            result = getStudentProgramResult(input_file_path, correct_output_file_path);
+        }
     }
-    return grade;
+    return result;
 }
 
+int getStudentProgramResult(char* input_file_path, char* correct_output_file_path) {
+    int status;
+    int in, out;
+    int pid;
+
+    if ((pid = fork()) < 0) {
+        printf("Failed to create cjild process for running student's program\n");
+        printErrorInSysCallToSTDERR();
+        exit(-1);
+    }
+     //child process
+    if (pid == 0) {
+        in = open(input_file_path, O_RDONLY);
+        if (in == -1) {
+            printf("Failed to open input file\n");
+            printErrorInSysCallToSTDERR();
+            exit(SYS_CALL_FAILURE);
+        }
+        unlink("output");
+        out = open("output",  O_CREAT | O_TRUNC | O_WRONLY, 0644);
+        if (out == -1) {
+            printf("Failed to open output file\n");
+            printErrorInSysCallToSTDERR();
+            exit(SYS_CALL_FAILURE);
+        }
+        // replace standard input with input file
+        if (dup2(in, STDIN_FILENO) == -1) {
+            printf("Failed to operate dup2 for in\n");
+            printErrorInSysCallToSTDERR();
+            exit(SYS_CALL_FAILURE);
+        }
+        // replace standard output with output file
+        if (dup2(out, STDOUT_FILENO) == -1) {
+            printf("Failed to operate dup2 for out\n");
+            printErrorInSysCallToSTDERR();
+            exit(SYS_CALL_FAILURE);
+        }
+        printf("Hi\n");
+
+        char prog_name[] = "./prog_s";
+        char* args[] = {prog_name, NULL};
+        execvp(args[0], args);
+        printf("Failed to run student program\n");
+        // main process
+    } else {
+        waitpid(pid, &status, 0);
+        return 0;
+    }
+}
+
+int checkCompileSuccess() {
+    DIR* pDir;
+    struct dirent*  entry;
+    struct stat stat_p;
+    char path[DIRECTORY_PATH_LENGTH];
+    getcwd(path, DIRECTORY_PATH_LENGTH);
+    int found_execute_file = 0;
+    if ((pDir = opendir(path)) == NULL) {
+        printf("Couldn't open current directory\n");
+        exit(1);
+    }
+    while ((entry = readdir(pDir)) != NULL) {
+        if (!strcmp(entry->d_name, STUDENT_EXECUTE_FILE_NAME)) {
+            found_execute_file = 1;
+            break;
+        }
+    }
+    closedir(pDir);
+    return found_execute_file;
+}
 void buildPath(char* dest, char* curr_path, char* filename) {
     strcpy(dest, curr_path);
     strcat(dest, "/");
     strcat(dest, filename);
 }
 
-int handleStudentDirectory(char* path) {
+int handleStudentDirectory(char* path, char* input_file_path, char* correct_output_file_path) {
     DIR* pDir;
     struct dirent*  entry;
     struct stat stat_p;
@@ -78,7 +160,7 @@ int handleStudentDirectory(char* path) {
                 printf("\t\t%s is a C file!\n", entry->d_name);
                 found_c_file = 1;
                 buildPath(entry_path, path, entry->d_name);
-                compileAndRunCFile(entry_path);
+                compileAndRunCFile(entry_path, input_file_path, correct_output_file_path);
             }
         }
     }
@@ -106,7 +188,7 @@ int handleStudentDirectory(char* path) {
                 if (S_ISDIR(stat_p.st_mode)) {
                     printf("####### Going recursively to a directory: %s #######\n", entry->d_name);
                     buildPath(entry_path, path, entry->d_name);
-                    result =handleStudentDirectory(entry_path);
+                    result =handleStudentDirectory(entry_path, input_file_path, correct_output_file_path);
                     if (result != -1) {
                         closedir(pDir);
                         return result;
@@ -131,7 +213,7 @@ int main(int argc, char *argv[]) {
     char config_file_buffer[CONFIG_LINE_LENGTH * 3];
     int config_file = open(argv[1], O_RDONLY);
     int read_bytes;
-    if (config_file == -1) {
+    if (config_file < 0) {
         printf("Couldn't open configuration file\n");
         printErrorInSysCallToSTDERR();
         return 0;
@@ -180,7 +262,7 @@ int main(int argc, char *argv[]) {
             strcpy(path, students_directory_path);
             strcat(path, "/");
             strcat(path, sub_dir->d_name);
-            result = handleStudentDirectory(path);
+            result = handleStudentDirectory(path, input_file_path, correct_output_file_path);
             printf("$ Result for student %s is %d\n", sub_dir->d_name, result);
         }
     }
