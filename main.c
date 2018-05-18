@@ -195,10 +195,12 @@ int checkCompileSuccess() {
     char path[DIRECTORY_PATH_LENGTH];
     getcwd(path, DIRECTORY_PATH_LENGTH);
     int found_execute_file = 0;
+
     if ((pDir = opendir(path)) == NULL) {
         printf("Couldn't open current directory\n");
         exit(1);
     }
+    // search for the STUDENT_EXECUTE_FILE_NAME file
     while ((entry = readdir(pDir)) != NULL) {
         if (!strcmp(entry->d_name, STUDENT_EXECUTE_FILE_NAME)) {
             found_execute_file = 1;
@@ -208,12 +210,28 @@ int checkCompileSuccess() {
     closedir(pDir);
     return found_execute_file;
 }
+
+/**
+ * concats the curr path with the filename with "/" between them.
+ * @param dest dest
+ * @param curr_path current path
+ * @param filename  file name in the path
+ */
 void buildPath(char* dest, char* curr_path, char* filename) {
     strcpy(dest, curr_path);
     strcat(dest, "/");
     strcat(dest, filename);
 }
 
+/**
+ * search for .c file in the student directory, and in the directories inside it recursively.
+ * if .c is found, calls to function that compile and runs it, and returns the student's grade.
+ * else - returns NO_C_FILE
+ * @param path path of the directory
+ * @param input_file_path path to the file that contains input to the program
+ * @param correct_output_file_path file_path path of file that contains the correct output
+ * @return student's grade or NO_C_FILE
+ */
 int handleStudentDirectory(char* path, char* input_file_path, char* correct_output_file_path) {
     DIR* pDir;
     struct dirent*  entry;
@@ -282,6 +300,13 @@ int handleStudentDirectory(char* path, char* input_file_path, char* correct_outp
     return NO_C_FILE;
 }
 
+
+/**
+ * writing student's grade to results.csv file
+ * @param result_file file descriptor of results.csv
+ * @param name name of the student
+ * @param result grade of the student - result code is actually converted to grade between 0-100
+ */
 void writeGradeToResultsFile(int result_file, char* name, int result) {
     char result_line[RESULT_LINE_LENGTH] ={0};
     strcpy(result_line, name);
@@ -308,6 +333,7 @@ void writeGradeToResultsFile(int result_file, char* name, int result) {
         default:
             break;
     }
+    // writing to results.csv
     if (write(result_file, result_line, strlen(result_line)) < 0) {
         printf("Failed to write to result.csv\n");
         printErrorInSysCallToSTDERR();
@@ -315,9 +341,16 @@ void writeGradeToResultsFile(int result_file, char* name, int result) {
     }
 }
 
+/**
+ * submit system implementation
+ * @param argc number of command line arguments
+ * @param argv command line arguments
+ * @return 0
+ */
 int main(int argc, char *argv[]) {
     printf("OS EX_3_B!\n");
 
+    // checks number of arguments
     if (argc < 2) {
         printf("Missing configuration file path or configuration file name\n");
         return 0;
@@ -332,6 +365,7 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    // reads configuration file
     if ((read_bytes = read(config_file, config_file_buffer, CONFIG_LINE_LENGTH * 3)) <= 0 ) {
         printf("Error while reading configuration file\n");
         printErrorInSysCallToSTDERR();
@@ -340,6 +374,7 @@ int main(int argc, char *argv[]) {
         config_file_buffer[read_bytes] = '\0';
     }
 
+    // closing configuration file
     if (close(config_file) == -1) {
         printf("Failed to close configuration file\n");
         printErrorInSysCallToSTDERR();
@@ -359,21 +394,24 @@ int main(int argc, char *argv[]) {
     printf("%s\n", input_file_path);
     printf("%s\n", correct_output_file_path);
 
-    // go through all directories in students directory
     struct dirent* sub_dir;
     DIR *p_student_dir;
+    //  open student directory
     if ((p_student_dir = opendir(students_directory_path)) == NULL) {
         printf("Couldn't open student directory\n");
     }
 
     char path[DIRECTORY_PATH_LENGTH];
     int result;
+    //  open results.csv file for writing thr students' grades.
     int result_file = open("results.csv", O_CREAT | O_TRUNC | O_WRONLY, 0644);
     if (result_file < 0) {
         printf("Couldn't open result.csv file\n");
         printErrorInSysCallToSTDERR();
         exit(FAILURE);
     }
+
+    // go through all directories in students directory
     while ((sub_dir = readdir(p_student_dir)) != NULL) {
         // go through all sub directories except "." (current dir) and ".." (father dir)
         if (strcmp(sub_dir->d_name, ".") && strcmp(sub_dir->d_name, "..")) {
@@ -386,7 +424,8 @@ int main(int argc, char *argv[]) {
             if (result == FAILURE || result == SYS_CALL_FAILURE) {
                 printf("Got unexpected result: %d\n", result);
                 exit(FAILURE);
-            }
+                }
+                // writing student's grade to results.csv
             writeGradeToResultsFile(result_file, sub_dir->d_name,result);
         }
     }
