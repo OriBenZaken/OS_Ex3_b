@@ -47,42 +47,66 @@ int isCFile(char* filename) {
 }
 
 /**
- * compile and run a .c file
- * @param path path of the .c file
- * @param input_file_path  path to the file that contains input to the program
- * @param correct_output_file_path path to the file that contains correct output
- * @return result of the compile and program output
+ * checks if STUDENT_EXECUTE_FILE_NAME file exists in the working directory
+ * @return 1 - compilation succeeded. 0 - else.
  */
-int compileAndRunCFile(char* path, char* input_file_path, char* correct_output_file_path) {
-    char compile_command[] = "gcc";
-    char o_flag[] = "-o";
-    char excute_file_name[] = STUDENT_EXECUTE_FILE_NAME;
-    // remove previous STUDENT_EXECUTE_FILE_NAME file from the working directory.
-    unlink(excute_file_name);
-    int result;
-    char* args[] = {compile_command, o_flag, excute_file_name, path, NULL};
-    int i = 0;
-    int pid;
-    if ((pid = fork()) < 0) {
-        printf("Error in fork command in order to compile .c file\n");
-        printErrorInSysCallToSTDERR();
-        // son process
+int checkCompileSuccess() {
+    DIR* pDir;
+    struct dirent*  entry;
+    struct stat stat_p;
+    char path[DIRECTORY_PATH_LENGTH];
+    getcwd(path, DIRECTORY_PATH_LENGTH);
+    int found_execute_file = 0;
+
+    if ((pDir = opendir(path)) == NULL) {
+        printf("Couldn't open current directory\n");
+        exit(1);
     }
-    if (pid == 0) {
-        // compile student's code
-        execvp(args[0], &args[0]);
-        exit(COMPILATION_ERROR);
-    } else {
-        // waiting for son process to finish compiling
-        waitpid(pid, NULL, 0);
-        if (!checkCompileSuccess()) {
-            printf("Compiled failed\n");
-            result = COMPILATION_ERROR;
-        } else {
-            result = getStudentProgramResult(input_file_path, correct_output_file_path);
+    // search for the STUDENT_EXECUTE_FILE_NAME file
+    while ((entry = readdir(pDir)) != NULL) {
+        if (!strcmp(entry->d_name, STUDENT_EXECUTE_FILE_NAME)) {
+            found_execute_file = 1;
+            break;
         }
     }
-    return result;
+    closedir(pDir);
+    return found_execute_file;
+}
+
+
+
+/**
+ * comparing between two files with comp.out and returns comp.out exit code.
+ * @param prog_output path of file contains the student's program output
+ * @param correct_output_file_path path of file that contains the correct output
+ * @return 3 - identical files. 2 - similar files. 3- different files.
+ */
+int compareFiles(char* prog_output,char* correct_output_file_path) {
+    char prog_name[] = "./comp.out";
+    char* args[] = {prog_name, correct_output_file_path, prog_output, NULL};
+    int pid;
+    int status, result;
+    if ((pid = fork()) < 0) {
+        printf("Failed to create child process for running student's program\n");
+        printErrorInSysCallToSTDERR();
+        exit(-1);
+    }
+    // child process - runs comp.out
+    if (pid == 0) {
+        execvp(args[0], args);
+        printf("Failed execute comp.out\n");
+        exit(FAILURE);
+    }
+    // main process - waiting for the comparison result
+    if (pid > 0) {
+        waitpid(pid, &status, 0);
+        result = WEXITSTATUS(status);
+        if (result == FAILURE) {
+            printf("Program stopped because it failed to execute comp.out\n");
+            exit(FAILURE);
+        }
+        return result;
+    }
 }
 
 
@@ -103,7 +127,7 @@ int getStudentProgramResult(char* input_file_path, char* correct_output_file_pat
         printErrorInSysCallToSTDERR();
         exit(-1);
     }
-     //child process
+    //child process
     if (pid == 0) {
         in = open(input_file_path, O_RDONLY);
         if (in == -1) {
@@ -151,64 +175,42 @@ int getStudentProgramResult(char* input_file_path, char* correct_output_file_pat
 }
 
 /**
- * comparing between two files with comp.out and returns comp.out exit code.
- * @param prog_output path of file contains the student's program output
- * @param correct_output_file_path path of file that contains the correct output
- * @return 3 - identical files. 2 - similar files. 3- different files.
+ * compile and run a .c file
+ * @param path path of the .c file
+ * @param input_file_path  path to the file that contains input to the program
+ * @param correct_output_file_path path to the file that contains correct output
+ * @return result of the compile and program output
  */
-int compareFiles(char* prog_output,char* correct_output_file_path) {
-    char prog_name[] = "./comp.out";
-    char* args[] = {prog_name, correct_output_file_path, prog_output, NULL};
+int compileAndRunCFile(char* path, char* input_file_path, char* correct_output_file_path) {
+    char compile_command[] = "gcc";
+    char o_flag[] = "-o";
+    char excute_file_name[] = STUDENT_EXECUTE_FILE_NAME;
+    // remove previous STUDENT_EXECUTE_FILE_NAME file from the working directory.
+    unlink(excute_file_name);
+    int result;
+    char* args[] = {compile_command, o_flag, excute_file_name, path, NULL};
+    int i = 0;
     int pid;
-    int status, result;
     if ((pid = fork()) < 0) {
-        printf("Failed to create child process for running student's program\n");
+        printf("Error in fork command in order to compile .c file\n");
         printErrorInSysCallToSTDERR();
-        exit(-1);
+        // son process
     }
-    // child process - runs comp.out
     if (pid == 0) {
-        execvp(args[0], args);
-        printf("Failed execute comp.out\n");
-        exit(FAILURE);
-    }
-    // main process - waiting for the comparison result
-    if (pid > 0) {
-        waitpid(pid, &status, 0);
-        result = WEXITSTATUS(status);
-        if (result == FAILURE) {
-            printf("Program stopped because it failed to execute comp.out\n");
-            exit(FAILURE);
-        }
-        return result;
-    }
-}
-
-/**
- * checks if STUDENT_EXECUTE_FILE_NAME file exists in the working directory
- * @return 1 - compilation succeeded. 0 - else.
- */
-int checkCompileSuccess() {
-    DIR* pDir;
-    struct dirent*  entry;
-    struct stat stat_p;
-    char path[DIRECTORY_PATH_LENGTH];
-    getcwd(path, DIRECTORY_PATH_LENGTH);
-    int found_execute_file = 0;
-
-    if ((pDir = opendir(path)) == NULL) {
-        printf("Couldn't open current directory\n");
-        exit(1);
-    }
-    // search for the STUDENT_EXECUTE_FILE_NAME file
-    while ((entry = readdir(pDir)) != NULL) {
-        if (!strcmp(entry->d_name, STUDENT_EXECUTE_FILE_NAME)) {
-            found_execute_file = 1;
-            break;
+        // compile student's code
+        execvp(args[0], &args[0]);
+        exit(COMPILATION_ERROR);
+    } else {
+        // waiting for son process to finish compiling
+        waitpid(pid, NULL, 0);
+        if (!checkCompileSuccess()) {
+            printf("Compiled failed\n");
+            result = COMPILATION_ERROR;
+        } else {
+            result = getStudentProgramResult(input_file_path, correct_output_file_path);
         }
     }
-    closedir(pDir);
-    return found_execute_file;
+    return result;
 }
 
 /**
