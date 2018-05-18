@@ -31,6 +31,11 @@ void printErrorInSysCallToSTDERR() {
     write(STDERR_FD, error_msg, sizeof(error_msg));
 }
 
+/**
+ * confirms that the input path is a path of .c file.
+ * @param filename
+ * @return 1- filename is .c file, 0 - else.
+ */
 int isCFile(char* filename) {
     filename = strrchr(filename, '.');
 
@@ -41,12 +46,20 @@ int isCFile(char* filename) {
     return 0;
 }
 
+/**
+ * compile and run a .c file
+ * @param path path of the .c file
+ * @param input_file_path  path to the file that contains input to the program
+ * @param correct_output_file_path path to the file that contains correct output
+ * @return result of the compile and program output
+ */
 int compileAndRunCFile(char* path, char* input_file_path, char* correct_output_file_path) {
     char compile_command[] = "gcc";
     char o_flag[] = "-o";
     char excute_file_name[] = STUDENT_EXECUTE_FILE_NAME;
+    // remove previous STUDENT_EXECUTE_FILE_NAME file from the working directory.
     unlink(excute_file_name);
-    int result = 0;
+    int result;
     char* args[] = {compile_command, o_flag, excute_file_name, path, NULL};
     int i = 0;
     int pid;
@@ -56,6 +69,7 @@ int compileAndRunCFile(char* path, char* input_file_path, char* correct_output_f
         // son process
     }
     if (pid == 0) {
+        // compile student's code
         execvp(args[0], &args[0]);
         exit(COMPILATION_ERROR);
     } else {
@@ -72,7 +86,13 @@ int compileAndRunCFile(char* path, char* input_file_path, char* correct_output_f
 }
 
 
-
+/**
+ * runs the student program with input and compare between the program output to the correct output.
+ * student's grade is determined by it's program output, and returned by this function.
+ * @param input_file_path path to the file that contains input to the program
+ * @param correct_output_file_path  path to the file that contains correct output
+ * @return student's grade
+ */
 int getStudentProgramResult(char* input_file_path, char* correct_output_file_path) {
     int status;
     int in, out;
@@ -91,6 +111,7 @@ int getStudentProgramResult(char* input_file_path, char* correct_output_file_pat
             printErrorInSysCallToSTDERR();
             exit(SYS_CALL_FAILURE);
         }
+        // remove previous output file if exists
         unlink("output");
         out = open("output",  O_CREAT | O_TRUNC | O_WRONLY, 0644);
         if (out == -1) {
@@ -113,6 +134,7 @@ int getStudentProgramResult(char* input_file_path, char* correct_output_file_pat
 
         char prog_name[] = "./prog_s";
         char* args[] = {prog_name, NULL};
+        // run the student's program
         execvp(args[0], args);
         printf("Failed to run student program\n");
         exit(1);
@@ -128,6 +150,12 @@ int getStudentProgramResult(char* input_file_path, char* correct_output_file_pat
     return compareFiles(prog_output, correct_output_file_path);
 }
 
+/**
+ * comparing between two files with comp.out and returns comp.out exit code.
+ * @param prog_output path of file contains the student's program output
+ * @param correct_output_file_path path of file that contains the correct output
+ * @return 3 - identical files. 2 - similar files. 3- different files.
+ */
 int compareFiles(char* prog_output,char* correct_output_file_path) {
     char prog_name[] = "./comp.out";
     char* args[] = {prog_name, correct_output_file_path, prog_output, NULL};
@@ -156,6 +184,10 @@ int compareFiles(char* prog_output,char* correct_output_file_path) {
     }
 }
 
+/**
+ * checks if STUDENT_EXECUTE_FILE_NAME file exists in the working directory
+ * @return 1 - compilation succeeded. 0 - else.
+ */
 int checkCompileSuccess() {
     DIR* pDir;
     struct dirent*  entry;
@@ -198,10 +230,15 @@ int handleStudentDirectory(char* path, char* input_file_path, char* correct_outp
         if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..")) {
             // building entry path
             printf("\t%s\n", entry->d_name);
-            if (isCFile(entry->d_name)) {
+            buildPath(entry_path, path, entry->d_name);
+            if (stat(entry_path, &stat_p) == -1) {
+                printf("Error occurred attempting to stat %s\n", entry->d_name);
+                exit(FAILURE);
+            }
+            // file has suffix .c and is not a directory
+            if (isCFile(entry->d_name) && !S_ISDIR(stat_p.st_mode)) {
                 printf("\t\t%s is a C file!\n", entry->d_name);
                 found_c_file = 1;
-                buildPath(entry_path, path, entry->d_name);
                 result = compileAndRunCFile(entry_path, input_file_path, correct_output_file_path);
             }
         }
@@ -226,6 +263,7 @@ int handleStudentDirectory(char* path, char* input_file_path, char* correct_outp
             buildPath(entry_path, path, entry->d_name);
             if (stat(entry_path, &stat_p) == -1) {
                 printf("Error occurred attempting to stat %s\n", entry->d_name);
+                exit(FAILURE);
             } else {
                 if (S_ISDIR(stat_p.st_mode)) {
                     printf("####### Going recursively to a directory: %s #######\n", entry->d_name);
@@ -245,7 +283,7 @@ int handleStudentDirectory(char* path, char* input_file_path, char* correct_outp
 }
 
 void writeGradeToResultsFile(int result_file, char* name, int result) {
-    char result_line[RESULT_LINE_LENGTH];
+    char result_line[RESULT_LINE_LENGTH] ={0};
     strcpy(result_line, name);
     strcat(result_line, ",");
     switch (result) {
